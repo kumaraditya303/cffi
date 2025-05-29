@@ -629,15 +629,10 @@ get_field_name(CTypeDescrObject *ct, CFieldObject *cf);   /* forward */
 static int do_realize_lazy_struct(CTypeDescrObject *ct);
 /* forward, implemented in realize_c_type.c */
 
-static int ct_is_hidden(CTypeDescrObject *ct)
-{
-  return ct->ct_final == 0;
-}
-
 static PyObject *ctypeget_fields(CTypeDescrObject *ct, void *context)
 {
     if (ct->ct_flags & (CT_STRUCT | CT_UNION)) {
-        if (!ct_is_hidden(ct)) {
+        if (ct->ct_final == 0) {
             CFieldObject *cf;
             PyObject *res;
             if (force_lazy_struct(ct) < 0)
@@ -1165,7 +1160,7 @@ convert_to_object(char *data, CTypeDescrObject *ct)
                          ct->ct_name);
             return NULL;
         }
-        else if (!ct->ct_final) {
+        else if (ct->ct_final == 0) {
             PyErr_Format(PyExc_TypeError,
                          "'%s' is not completed yet",
                          ct->ct_name);
@@ -1946,9 +1941,13 @@ static int
 get_alignment(CTypeDescrObject *ct)
 {
     int align;
- retry:
-    if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) &&
-        !ct_is_hidden(ct)) {
+retry:
+    if (ct->ct_final == 0) {
+        if (force_lazy_struct(ct) < 0) {
+            return -1;
+        }
+    }
+    if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) && (ct->ct_final == 1)) {
         align = ct->ct_length;
         if (align == -1 && (ct->ct_flags_mut & CT_LAZY_FIELD_LIST)) {
             force_lazy_struct(ct);
@@ -3347,7 +3346,7 @@ static PyObject *cdata_dir(PyObject *cd, PyObject *noarg)
     }
     // NJG: not sure this does the right thing if a type is already under construction
     if ((ct->ct_flags & (CT_STRUCT | CT_UNION)) &&
-        !ct_is_hidden(ct)) {
+        (ct->ct_final == 0)) {
 
         /* for non-opaque structs or unions */
         if (force_lazy_struct(ct) < 0)
@@ -3942,8 +3941,11 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
 
     explicitlength = -1;
     if (ct->ct_flags & CT_POINTER) {
+        if (force_lazy_struct(ct) < 0)
+            return NULL;
         dataoffset = offsetof(CDataObject_own_nolength, alignment);
         ctitem = ct->ct_itemdescr;
+
         datasize = ctitem->ct_size;
         if (datasize < 0) {
             PyErr_Format(PyExc_TypeError,
@@ -5353,8 +5355,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                               &fbitsize, &foffset))
             goto error;
 
-        if ((ftype->ct_flags & (CT_STRUCT | CT_UNION)) &&
-            !ct_is_hidden(ftype)) {
+        if ((ftype->ct_flags & (CT_STRUCT | CT_UNION)) && (ct->ct_final == 0)) {
             /* force now the type of the nested field */
             if (force_lazy_struct(ftype) < 0)
                 return NULL;
@@ -6740,7 +6741,7 @@ static PyObject *b_new_enum_type(PyObject *self, PyObject *args)
     td->ct_extra = basetd->ct_extra;     /* ffi type  */
     td->ct_flags = basetd->ct_flags | CT_IS_ENUM;
     td->ct_flags_mut = basetd->ct_flags_mut;
-    td->ct_final = basetd->ct_final;
+    td->ct_final = 1;
     td->ct_name_position = name_size - 1;
     return (PyObject *)td;
 
