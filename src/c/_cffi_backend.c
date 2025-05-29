@@ -295,7 +295,7 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
   These may be set transiently if fields are lazily constructed.
 */
 #define CT_LAZY_FIELD_LIST      0x00000001
-#define CT_UNDER_CONSTRUCTION   0x00000002
+// #define CT_UNDER_CONSTRUCTION   0x00000002
 
 typedef struct _ctypedescr {
     PyObject_VAR_HEAD
@@ -322,6 +322,7 @@ typedef struct _ctypedescr {
     int ct_flags;           /* Immutable CT_xxx flags */
     int ct_flags_mut;       /* Mutable flags (e.g., CT_LAZY_FIELD_LIST) */
 
+    int ct_final;
     int ct_name_position;   /* index in ct_name of where to put a var name */
     char ct_name[1];        /* string, e.g. "int *" for pointers to ints */
 } CTypeDescrObject;
@@ -630,8 +631,7 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct);
 
 static int ct_is_hidden(CTypeDescrObject *ct)
 {
-  return ((ct->ct_flags & CT_IS_OPAQUE) ||
-          (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
+  return ct->ct_final == 0;
 }
 
 static PyObject *ctypeget_fields(CTypeDescrObject *ct, void *context)
@@ -894,7 +894,7 @@ _my_PyLong_AsLongLong(PyObject *ob)
     if (PyInt_Check(ob)) {
         return PyInt_AS_LONG(ob);
     }
-    else 
+    else
 #endif
     if (PyLong_Check(ob)) {
         return PyLong_AsLongLong(ob);
@@ -1165,7 +1165,7 @@ convert_to_object(char *data, CTypeDescrObject *ct)
                          ct->ct_name);
             return NULL;
         }
-        else if (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION) {
+        else if (!ct->ct_final) {
             PyErr_Format(PyExc_TypeError,
                          "'%s' is not completed yet",
                          ct->ct_name);
@@ -4580,7 +4580,7 @@ static void *b_do_dlopen(PyObject *args, const char **p_printable_filename,
     int flags = 0;
     *p_temp = NULL;
     *auto_close = 1;
-    
+
     if (PyTuple_GET_SIZE(args) == 0 || PyTuple_GET_ITEM(args, 0) == Py_None) {
         PyObject *dummy;
         if (!PyArg_ParseTuple(args, "|Oi:load_library",
@@ -4708,7 +4708,7 @@ static PyObject *b_load_library(PyObject *self, PyObject *args)
     dlobj->dl_handle = handle;
     dlobj->dl_name = strdup(printable_filename);
     dlobj->dl_auto_close = auto_close;
- 
+
  error:
     Py_XDECREF(temp);
     return (PyObject *)dlobj;
@@ -4982,6 +4982,7 @@ static PyObject *new_primitive_type(const char *name)
     td->ct_extra = ffitype;
     td->ct_flags = ptypes->flags;
     td->ct_flags_mut = 0;
+    td->ct_final = 1;
     if (td->ct_flags & (CT_PRIMITIVE_SIGNED | CT_PRIMITIVE_CHAR)) {
         if (td->ct_size <= (Py_ssize_t)sizeof(long))
             td->ct_flags |= CT_PRIMITIVE_FITS_LONG;
@@ -5036,6 +5037,7 @@ static PyObject *new_pointer_type(CTypeDescrObject *ctitem)
          ctitem->ct_size == sizeof(char)))
         td->ct_flags |= CT_IS_VOIDCHAR_PTR;   /* 'void *' or 'char *' only */
     td->ct_flags_mut = 0;
+    td->ct_final = 1;
     unique_key[0] = ctitem;
     return get_unique_type(td, unique_key, 1);
 }
@@ -5117,6 +5119,7 @@ new_array_type(CTypeDescrObject *ctptr, Py_ssize_t length)
     td->ct_length = length;
     td->ct_flags = flags;
     td->ct_flags_mut = 0;
+    td->ct_final = 1;
     unique_key[0] = ctptr;
     unique_key[1] = (void *)length;
     return get_unique_type(td, unique_key, 2);
@@ -5134,6 +5137,7 @@ static PyObject *new_void_type(void)
     td->ct_size = -1;
     td->ct_flags = CT_VOID | CT_IS_OPAQUE;
     td->ct_flags_mut = 0;
+    td->ct_final = 1;
     td->ct_name_position = strlen("void");
     unique_key[0] = "void";
     return get_unique_type(td, unique_key, 1);
@@ -5154,8 +5158,9 @@ static PyObject *new_struct_or_union_type(const char *name, int flag)
     td->ct_size = -1;
     td->ct_length = -1;
     // may be unset later if this type needs lazy init
-    td->ct_flags = flag | CT_IS_OPAQUE;
+    td->ct_flags = flag;
     td->ct_flags_mut = 0;
+    td->ct_final = 0;
     td->ct_extra = NULL;
     memcpy(td->ct_name, name, namelen + 1);
     td->ct_name_position = namelen;
@@ -5316,8 +5321,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
         sflags |= SF_PACKED;
 
     is_union = ct->ct_flags & CT_UNION;
-    if (!((ct->ct_flags & CT_UNION) || (ct->ct_flags & CT_STRUCT)) ||
-        !ct_is_hidden(ct)) {
+    if ((!((ct->ct_flags & CT_UNION) || (ct->ct_flags & CT_STRUCT))) && (ct->ct_final == 0)) {
         PyErr_SetString(PyExc_TypeError,
                         "first arg must be a non-initialized struct or union ctype");
         return NULL;
@@ -5649,7 +5653,8 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     ct->ct_size = totalsize;
     ct->ct_length = totalalignment;
     ct->ct_stuff = interned_fields;
-    ct->ct_flags &= ~CT_IS_OPAQUE;
+    // ct->ct_flags &= ~CT_IS_OPAQUE;
+    ct->ct_final = 1;  // this type is now complete
 
     Py_INCREF(Py_None);
     return Py_None;
@@ -6026,6 +6031,7 @@ static CTypeDescrObject *fb_prepare_ctype(struct funcbuilder_s *fb,
     fct->ct_size = sizeof(void(*)(void));
     fct->ct_flags = CT_FUNCTIONPTR;
     fct->ct_flags_mut = 0;
+    fct->ct_final = 1;
     return fct;
 
  error:
@@ -6109,7 +6115,7 @@ static PyObject *new_function_type(PyObject *fargs,   /* tuple */
         char *msg;
         if (fresult->ct_flags & CT_IS_OPAQUE)
             msg = "result type '%s' is opaque";
-        else if (fresult->ct_flags_mut & CT_UNDER_CONSTRUCTION)
+        else if (!fresult->ct_final)
             msg = "result type '%s' is under construction";
         else
             msg = "invalid result type: '%s'";
@@ -6734,6 +6740,7 @@ static PyObject *b_new_enum_type(PyObject *self, PyObject *args)
     td->ct_extra = basetd->ct_extra;     /* ffi type  */
     td->ct_flags = basetd->ct_flags | CT_IS_ENUM;
     td->ct_flags_mut = basetd->ct_flags_mut;
+    td->ct_final = basetd->ct_final;
     td->ct_name_position = name_size - 1;
     return (PyObject *)td;
 

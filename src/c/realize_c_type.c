@@ -401,7 +401,7 @@ _realize_c_struct_or_union(builder_c_t *builder, int sindex)
                 ct->ct_size = (Py_ssize_t)s->size;
                 // unset opaque flag temporarily added in
                 // new_struct_or_union_type since _CFFI_F_OPAUE isn't set
-                ct->ct_flags &= ~CT_IS_OPAQUE;
+                // ct->ct_flags &= ~CT_IS_OPAQUE;
                 ct->ct_length = s->alignment; /* may be -1 */
                 ct->ct_flags_mut |= CT_LAZY_FIELD_LIST;
                 ct->ct_extra = builder;
@@ -787,8 +787,7 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct)
         const struct _cffi_field_s *fld;
         PyObject *fields, *args, *res;
 
-        assert(!((ct->ct_flags & CT_IS_OPAQUE) ||
-                 (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION)));
+        assert(!ct->final);
 
         builder = ct->ct_extra;
         assert(builder != NULL);
@@ -872,9 +871,9 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct)
             return -1;
 
         ct->ct_extra = NULL;
-        ct->ct_flags_mut |= CT_UNDER_CONSTRUCTION;
+        assert(ct->ct_final == 0);
         res = b_complete_struct_or_union(NULL, args);
-        ct->ct_flags_mut &= ~CT_UNDER_CONSTRUCTION;
+        assert(ct->ct_final == 1);
         Py_DECREF(args);
 
         if (res == NULL) {
@@ -888,7 +887,7 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct)
         return 1;
     }
     else {
-        assert(!(ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
+        assert(ct->ct_final == 1);
         return 0;
     }
 }
