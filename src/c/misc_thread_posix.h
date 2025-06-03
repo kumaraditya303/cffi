@@ -63,4 +63,15 @@ static void cffi_atomic_store(void **ptr, void *value)
 {
     __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
 }
+
+static uint8_t cffi_atomic_load_uint8(uint8_t *ptr)
+{
+    return __atomic_load_n(ptr, __ATOMIC_SEQ_CST);
+}
+
+static void cffi_atomic_store_uint8(uint8_t *ptr, uint8_t value)
+{
+    __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
+}
+
 #endif

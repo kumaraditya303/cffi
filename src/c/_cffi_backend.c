@@ -5661,10 +5661,11 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     ct->ct_length = totalalignment;
     ct->ct_flags &= ~CT_IS_OPAQUE;
     // clear out any flags that were set by the lazy struct
-    // do it here instead of
+    // do it here instead of doing it in force_lazy_struct
+    // as we need to sync with the store of ct->ct_stuff
     ct->ct_flags_mut &= ~(CT_UNDER_CONSTRUCTION | CT_LAZY_FIELD_LIST);
 #ifdef Py_GIL_DISABLED
-    /* use seq consistency at last after writing other threads
+    /* use seq consistency at last after writing other fields
        to ensure other fields are visible to threads */
     cffi_atomic_store((void **)&ct->ct_stuff, interned_fields);
 #else

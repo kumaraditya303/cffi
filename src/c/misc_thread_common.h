@@ -2,6 +2,7 @@
 # error "xxx no-thread configuration not tested, please report if you need that"
 #endif
 #include "pythread.h"
+#include "inttypes.h"
 
 
 struct cffi_tls_s {
