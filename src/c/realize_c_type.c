@@ -874,7 +874,7 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         ct->ct_extra = NULL;
         ct->ct_flags_mut |= CT_UNDER_CONSTRUCTION;
         res = b_complete_struct_or_union(NULL, args);
-        ct->ct_flags_mut &= ~CT_UNDER_CONSTRUCTION;
+        assert((ct->ct_flags_mut & CT_UNDER_CONSTRUCTION) == 0);
         Py_DECREF(args);
 
         if (res == NULL) {
@@ -883,7 +883,7 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         }
 
         assert(ct->ct_stuff != NULL);
-        ct->ct_flags_mut &= ~CT_LAZY_FIELD_LIST;
+        assert((ct->ct_flags_mut & CT_LAZY_FIELD_LIST) == 0);
         Py_DECREF(res);
         return 1;
     }
