@@ -1955,6 +1955,7 @@ get_alignment(CTypeDescrObject *ct)
  retry:
     if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) &&
         !(ct->ct_flags & CT_IS_OPAQUE)) {
+        // needs critical section
         align = ct->ct_length;
         if (align == -1 && cffi_check_flag(ct->ct_lazy_field_list)) {
             force_lazy_struct(ct);
@@ -5298,6 +5299,7 @@ static int detect_custom_layout(CTypeDescrObject *ct, int sflags,
 
 #define ROUNDUP_BYTES(bytes, bits)    ((bytes) + ((bits) > 0))
 
+// needs critical section
 static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 {
     CTypeDescrObject *ct;
