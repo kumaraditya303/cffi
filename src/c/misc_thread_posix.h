@@ -12,6 +12,8 @@
   see a given thread, and keep it alive until the thread is really
   shut down, using a destructor on the tls key.
 */
+#ifndef CFFI_MISC_THREAD_POSIX_H
+#define CFFI_MISC_THREAD_POSIX_H
 
 #include <pthread.h>
 #include "misc_thread_common.h"
@@ -63,4 +65,16 @@ static void cffi_atomic_store(void **ptr, void *value)
 {
     __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
 }
+
+static uint8_t cffi_atomic_load_uint8(uint8_t *ptr)
+{
+    return __atomic_load_n(ptr, __ATOMIC_SEQ_CST);
+}
+
+static void cffi_atomic_store_uint8(uint8_t *ptr, uint8_t value)
+{
+    __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
+}
+
 #endif
+#endif /* CFFI_MISC_THREAD_POSIX_H */

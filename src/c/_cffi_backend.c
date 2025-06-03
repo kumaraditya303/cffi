@@ -238,10 +238,6 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
 }
 #endif
 
-#if PY_VERSION_HEX <= 0x030d00b3
-# define Py_BEGIN_CRITICAL_SECTION(op) {
-# define Py_END_CRITICAL_SECTION() }
-#endif
 
 #ifdef Py_GIL_DISABLED
 # define LOCK_UNIQUE_CACHE()   PyMutex_Lock(&unique_cache_lock)
@@ -294,8 +290,8 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
 
   These may be set transiently if fields are lazily constructed.
 */
-#define CT_LAZY_FIELD_LIST      0x00000001
-#define CT_UNDER_CONSTRUCTION   0x00000002
+// #define CT_LAZY_FIELD_LIST      0x00000001
+// #define CT_UNDER_CONSTRUCTION   0x00000002
 #define CT_CUSTOM_FIELD_POS     0x00000004
 #define CT_WITH_PACKED_CHANGE   0x00000008
 
@@ -323,7 +319,8 @@ typedef struct _ctypedescr {
                                always -1 for pointers */
     int ct_flags;           /* Immutable CT_xxx flags */
     int ct_flags_mut;       /* Mutable flags (e.g., CT_LAZY_FIELD_LIST) */
-
+    uint8_t ct_under_construction;
+    uint8_t ct_lazy_field_list;
     int ct_name_position;   /* index in ct_name of where to put a var name */
     char ct_name[1];        /* string, e.g. "int *" for pointers to ints */
 } CTypeDescrObject;
@@ -622,13 +619,26 @@ static PyObject *ctypeget_length(CTypeDescrObject *ct, void *context)
 static PyObject *
 get_field_name(CTypeDescrObject *ct, CFieldObject *cf);   /* forward */
 
-/* returns 0 if the struct ctype is opaque, 1 if it is not, or -1 if
-   an exception occurs */
-#define force_lazy_struct(ct)                                           \
-    ((ct)->ct_stuff != NULL ? 1 : do_realize_lazy_struct(ct))
-
 static int do_realize_lazy_struct(CTypeDescrObject *ct);
 /* forward, implemented in realize_c_type.c */
+
+/* returns 0 if the struct ctype is opaque, 1 if it is not, or -1 if
+   an exception occurs */
+static inline
+force_lazy_struct(CTypeDescrObject *ct)
+{
+#ifdef Py_GIL_DISABLED
+    PyObject *ct_stuff = cffi_atomic_load((void**)&ct->ct_stuff);
+#else
+    PyObject *ct_stuff = ct->ct_stuff;
+#endif
+    if (ct_stuff != NULL) {
+        /* already realized */
+        return 1;
+    }
+    return do_realize_lazy_struct(ct);
+}
+
 
 static PyObject *ctypeget_fields(CTypeDescrObject *ct, void *context)
 {
@@ -890,7 +900,7 @@ _my_PyLong_AsLongLong(PyObject *ob)
     if (PyInt_Check(ob)) {
         return PyInt_AS_LONG(ob);
     }
-    else 
+    else
 #endif
     if (PyLong_Check(ob)) {
         return PyLong_AsLongLong(ob);
@@ -1161,7 +1171,7 @@ convert_to_object(char *data, CTypeDescrObject *ct)
                          ct->ct_name);
             return NULL;
         }
-        else if (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION) {
+        else if (cffi_check_flag(ct->ct_under_construction)) {
             PyErr_Format(PyExc_TypeError,
                          "'%s' is not completed yet",
                          ct->ct_name);
@@ -1946,7 +1956,7 @@ get_alignment(CTypeDescrObject *ct)
     if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) &&
         !(ct->ct_flags & CT_IS_OPAQUE)) {
         align = ct->ct_length;
-        if (align == -1 && (ct->ct_flags_mut & CT_LAZY_FIELD_LIST)) {
+        if (align == -1 && cffi_check_flag(ct->ct_lazy_field_list)) {
             force_lazy_struct(ct);
             align = ct->ct_length;
         }
@@ -2667,19 +2677,25 @@ cdata_slice(CDataObject *cd, PySliceObject *slice)
     CTypeDescrObject *ct = _cdata_getslicearg(cd, slice, bounds);
     if (ct == NULL)
         return NULL;
-
+    CTypeDescrObject *array_type = NULL;
     Py_BEGIN_CRITICAL_SECTION(ct);
+    array_type = (CTypeDescrObject *)ct->ct_stuff;
     if (ct->ct_stuff == NULL) {
-        ct->ct_stuff = new_array_type(ct, -1);
+        array_type = (CTypeDescrObject *)new_array_type(ct, -1);
+#ifdef Py_GIL_DISABLED
+        cffi_atomic_store((void **)&ct->ct_stuff, array_type);
+#else
+        ct->ct_stuff = array_type;
+#endif
     }
     Py_END_CRITICAL_SECTION();
 
-    if (ct->ct_stuff == NULL)
+    if (array_type == NULL) {
         return NULL;
-    ct = (CTypeDescrObject *)ct->ct_stuff;
+    }
 
-    cdata = cd->c_data + ct->ct_itemdescr->ct_size * bounds[0];
-    return new_sized_cdata(cdata, ct, bounds[1]);
+    cdata = cd->c_data + array_type->ct_itemdescr->ct_size * bounds[0];
+    return new_sized_cdata(cdata, array_type, bounds[1]);
 }
 
 static int
@@ -4575,7 +4591,7 @@ static void *b_do_dlopen(PyObject *args, const char **p_printable_filename,
     int flags = 0;
     *p_temp = NULL;
     *auto_close = 1;
-    
+
     if (PyTuple_GET_SIZE(args) == 0 || PyTuple_GET_ITEM(args, 0) == Py_None) {
         PyObject *dummy;
         if (!PyArg_ParseTuple(args, "|Oi:load_library",
@@ -4703,7 +4719,7 @@ static PyObject *b_load_library(PyObject *self, PyObject *args)
     dlobj->dl_handle = handle;
     dlobj->dl_name = strdup(printable_filename);
     dlobj->dl_auto_close = auto_close;
- 
+
  error:
     Py_XDECREF(temp);
     return (PyObject *)dlobj;
@@ -5112,6 +5128,7 @@ new_array_type(CTypeDescrObject *ctptr, Py_ssize_t length)
     td->ct_length = length;
     td->ct_flags = flags;
     td->ct_flags_mut = 0;
+    td->ct_under_construction = 0;
     unique_key[0] = ctptr;
     unique_key[1] = (void *)length;
     return get_unique_type(td, unique_key, 2);
@@ -5151,6 +5168,7 @@ static PyObject *new_struct_or_union_type(const char *name, int flag)
     // may be unset later if this type needs lazy init
     td->ct_flags = flag | CT_IS_OPAQUE;
     td->ct_flags_mut = 0;
+    td->ct_under_construction = 0;
     td->ct_extra = NULL;
     memcpy(td->ct_name, name, namelen + 1);
     td->ct_name_position = namelen;
@@ -5312,12 +5330,12 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 
     is_union = ct->ct_flags & CT_UNION;
     if (!((ct->ct_flags & CT_UNION) || (ct->ct_flags & CT_STRUCT)) ||
-        !((ct->ct_flags & CT_IS_OPAQUE) || (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION))) {
+        !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_under_construction))) {
         PyErr_SetString(PyExc_TypeError,
                         "first arg must be a non-initialized struct or union ctype");
         return NULL;
     }
-    assert((ct->ct_flags & CT_IS_OPAQUE) ^ (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
+    assert((ct->ct_flags & CT_IS_OPAQUE) ^ (ct->ct_under_construction));
     ct->ct_flags_mut &= ~(CT_CUSTOM_FIELD_POS | CT_WITH_PACKED_CHANGE);
 
     alignment = 1;
@@ -5329,7 +5347,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     nb_fields = PyList_GET_SIZE(fields);
     interned_fields = PyDict_New();
     if (interned_fields == NULL)
-        return NULL;
+        goto error;
 
     previous = (CFieldObject **)&ct->ct_extra;
 
@@ -5349,7 +5367,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
             !(ftype->ct_flags & CT_IS_OPAQUE)) {
             /* force now the type of the nested field */
             if (force_lazy_struct(ftype) < 0)
-                return NULL;
+                goto error;
         }
 
         if (ftype->ct_size < 0) {
@@ -5644,15 +5662,20 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 
     ct->ct_size = totalsize;
     ct->ct_length = totalalignment;
-    ct->ct_stuff = interned_fields;
     ct->ct_flags &= ~CT_IS_OPAQUE;
-
+#ifdef Py_GIL_DISABLED
+    /* use seq consistency at last after writing other fields
+       to ensure other fields are visible to threads */
+    cffi_atomic_store((void **)&ct->ct_stuff, interned_fields);
+#else
+    ct->ct_stuff = interned_fields;
+#endif
     Py_INCREF(Py_None);
     return Py_None;
 
  error:
     ct->ct_extra = NULL;
-    Py_DECREF(interned_fields);
+    Py_XDECREF(interned_fields);
     return NULL;
 }
 
@@ -6105,7 +6128,7 @@ static PyObject *new_function_type(PyObject *fargs,   /* tuple */
         char *msg;
         if (fresult->ct_flags & CT_IS_OPAQUE)
             msg = "result type '%s' is opaque";
-        else if (fresult->ct_flags_mut & CT_UNDER_CONSTRUCTION)
+        else if (cffi_check_flag(fresult->ct_under_construction))
             msg = "result type '%s' is under construction";
         else
             msg = "invalid result type: '%s'";

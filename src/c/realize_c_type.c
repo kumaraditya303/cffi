@@ -1,4 +1,11 @@
 
+#ifdef MS_WIN32
+#include "misc_win32.h"
+#else
+#include "misc_thread_posix.h"
+#endif
+
+
 typedef struct {
     struct _cffi_type_context_s ctx;   /* inlined substructure */
     PyObject *types_dict;
@@ -403,7 +410,7 @@ _realize_c_struct_or_union(builder_c_t *builder, int sindex)
                 // new_struct_or_union_type since _CFFI_F_OPAUE isn't set
                 ct->ct_flags &= ~CT_IS_OPAQUE;
                 ct->ct_length = s->alignment; /* may be -1 */
-                ct->ct_flags_mut |= CT_LAZY_FIELD_LIST;
+                ct->ct_lazy_field_list = 1;
                 ct->ct_extra = builder;
             }
             else
@@ -774,12 +781,12 @@ realize_c_func_return_type(builder_c_t *builder,
     }
 }
 
-static int do_realize_lazy_struct(CTypeDescrObject *ct)
+static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
 {
     /* This is called by force_lazy_struct() in _cffi_backend.c */
     assert(ct->ct_flags & (CT_STRUCT | CT_UNION));
-    assert(!(ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
-    if (ct->ct_flags_mut & CT_LAZY_FIELD_LIST) {
+
+    if (cffi_check_flag(ct->ct_lazy_field_list)) {
         builder_c_t *builder;
         char *p;
         int n, i, sflags;
@@ -872,9 +879,9 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct)
             return -1;
 
         ct->ct_extra = NULL;
-        ct->ct_flags_mut |= CT_UNDER_CONSTRUCTION;
+        cffi_set_flag(ct->ct_under_construction, 1);
         res = b_complete_struct_or_union(NULL, args);
-        ct->ct_flags_mut &= ~CT_UNDER_CONSTRUCTION;
+        cffi_set_flag(ct->ct_under_construction, 0);
         Py_DECREF(args);
 
         if (res == NULL) {
@@ -883,12 +890,24 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct)
         }
 
         assert(ct->ct_stuff != NULL);
-        ct->ct_flags_mut &= ~CT_LAZY_FIELD_LIST;
-        assert(!(ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
+        cffi_set_flag(ct->ct_lazy_field_list, 0);
         Py_DECREF(res);
         return 1;
     }
     else {
         return 0;
     }
+}
+
+
+static int do_realize_lazy_struct(CTypeDescrObject *ct)
+{
+    if (cffi_check_flag(ct->ct_lazy_field_list)) {
+        return 0;
+    }
+    int res = 0;
+    Py_BEGIN_CRITICAL_SECTION(ct);
+    res = do_realize_lazy_struct_lock_held(ct);
+    Py_END_CRITICAL_SECTION();
+    return res;
 }
