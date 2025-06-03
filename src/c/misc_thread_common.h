@@ -22,7 +22,7 @@ struct cffi_tls_s {
 #endif
 };
 
-static struct cffi_tls_s *get_cffi_tls(void);   /* in misc_thread_posix.h 
+static struct cffi_tls_s *get_cffi_tls(void);   /* in misc_thread_posix.h
                                                    or misc_win32.h */
 
 
@@ -312,7 +312,7 @@ static void restore_errno_only(void)
 
 /* MESS.  We can't use PyThreadState_GET(), because that calls
    PyThreadState_Get() which fails an assert if the result is NULL.
-   
+
    * in Python 2.7 and <= 3.4, the variable _PyThreadState_Current
      is directly available, so use that.
 
@@ -390,3 +390,9 @@ static void gil_release(PyGILState_STATE oldstate)
     //fprintf(stderr, "%p: gil_release(%d), tls=%p\n", get_cffi_tls(), (int)oldstate, get_cffi_tls());
     PyGILState_Release(oldstate);
 }
+
+
+#if PY_VERSION_HEX <= 0x030d00b3
+# define Py_BEGIN_CRITICAL_SECTION(op) {
+# define Py_END_CRITICAL_SECTION() }
+#endif

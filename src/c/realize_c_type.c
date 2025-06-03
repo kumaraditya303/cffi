@@ -774,7 +774,7 @@ realize_c_func_return_type(builder_c_t *builder,
     }
 }
 
-static int do_realize_lazy_struct(CTypeDescrObject *ct)
+static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
 {
     /* This is called by force_lazy_struct() in _cffi_backend.c */
     assert(ct->ct_flags & (CT_STRUCT | CT_UNION));
@@ -891,4 +891,14 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct)
         assert(!(ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
         return 0;
     }
+}
+
+
+static int do_realize_lazy_struct(CTypeDescrObject *ct)
+{
+    int res = 0;
+    Py_BEGIN_CRITICAL_SECTION(ct);
+    res = do_realize_lazy_struct_lock_held(ct);
+    Py_END_CRITICAL_SECTION();
+    return res;
 }

@@ -238,10 +238,6 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
 }
 #endif
 
-#if PY_VERSION_HEX <= 0x030d00b3
-# define Py_BEGIN_CRITICAL_SECTION(op) {
-# define Py_END_CRITICAL_SECTION() }
-#endif
 
 #ifdef Py_GIL_DISABLED
 # define LOCK_UNIQUE_CACHE()   PyMutex_Lock(&unique_cache_lock)
@@ -622,13 +618,27 @@ static PyObject *ctypeget_length(CTypeDescrObject *ct, void *context)
 static PyObject *
 get_field_name(CTypeDescrObject *ct, CFieldObject *cf);   /* forward */
 
-/* returns 0 if the struct ctype is opaque, 1 if it is not, or -1 if
-   an exception occurs */
-#define force_lazy_struct(ct)                                           \
-    ((ct)->ct_stuff != NULL ? 1 : do_realize_lazy_struct(ct))
-
 static int do_realize_lazy_struct(CTypeDescrObject *ct);
 /* forward, implemented in realize_c_type.c */
+
+/* returns 0 if the struct ctype is opaque, 1 if it is not, or -1 if
+   an exception occurs */
+static inline
+force_lazy_struct(CTypeDescrObject *ct)
+{
+#ifdef Py_GIL_DISABLED
+    PyObject *ct_stuff = cffi_atomic_load((void**)&ct->ct_stuff);
+#else
+    PyObject *ct_stuff = ct->ct_stuff;
+#endif
+    if (ct_stuff != NULL) {
+        /* already realized */
+        return 1;
+    }
+    return do_realize_lazy_struct(ct);
+}
+
+
 
 static int ct_is_hidden(CTypeDescrObject *ct)
 {
@@ -896,7 +906,7 @@ _my_PyLong_AsLongLong(PyObject *ob)
     if (PyInt_Check(ob)) {
         return PyInt_AS_LONG(ob);
     }
-    else 
+    else
 #endif
     if (PyLong_Check(ob)) {
         return PyLong_AsLongLong(ob);
@@ -2673,19 +2683,25 @@ cdata_slice(CDataObject *cd, PySliceObject *slice)
     CTypeDescrObject *ct = _cdata_getslicearg(cd, slice, bounds);
     if (ct == NULL)
         return NULL;
-
+    CTypeDescrObject *array_type = NULL;
     Py_BEGIN_CRITICAL_SECTION(ct);
+    array_type = (CTypeDescrObject *)ct->ct_stuff;
     if (ct->ct_stuff == NULL) {
-        ct->ct_stuff = new_array_type(ct, -1);
+        array_type = (CTypeDescrObject *)new_array_type(ct, -1);
+#ifdef Py_GIL_DISABLED
+        cffi_atomic_store((void **)&ct->ct_stuff, array_type);
+#else
+        ct->ct_stuff = array_type;
+#endif
     }
     Py_END_CRITICAL_SECTION();
 
-    if (ct->ct_stuff == NULL)
+    if (array_type == NULL) {
         return NULL;
-    ct = (CTypeDescrObject *)ct->ct_stuff;
+    }
 
-    cdata = cd->c_data + ct->ct_itemdescr->ct_size * bounds[0];
-    return new_sized_cdata(cdata, ct, bounds[1]);
+    cdata = cd->c_data + array_type->ct_itemdescr->ct_size * bounds[0];
+    return new_sized_cdata(cdata, array_type, bounds[1]);
 }
 
 static int
@@ -4582,7 +4598,7 @@ static void *b_do_dlopen(PyObject *args, const char **p_printable_filename,
     int flags = 0;
     *p_temp = NULL;
     *auto_close = 1;
-    
+
     if (PyTuple_GET_SIZE(args) == 0 || PyTuple_GET_ITEM(args, 0) == Py_None) {
         PyObject *dummy;
         if (!PyArg_ParseTuple(args, "|Oi:load_library",
@@ -4710,7 +4726,7 @@ static PyObject *b_load_library(PyObject *self, PyObject *args)
     dlobj->dl_handle = handle;
     dlobj->dl_name = strdup(printable_filename);
     dlobj->dl_auto_close = auto_close;
- 
+
  error:
     Py_XDECREF(temp);
     return (PyObject *)dlobj;
@@ -5650,9 +5666,12 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 
     ct->ct_size = totalsize;
     ct->ct_length = totalalignment;
-    ct->ct_stuff = interned_fields;
     ct->ct_flags &= ~CT_IS_OPAQUE;
-
+#ifdef Py_GIL_DISABLED
+    cffi_atomic_store((void **)&ct->ct_stuff, interned_fields);
+#else
+    ct->ct_stuff = interned_fields;
+#endif
     Py_INCREF(Py_None);
     return Py_None;
 
