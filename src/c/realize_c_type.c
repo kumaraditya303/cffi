@@ -778,7 +778,7 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
 {
     /* This is called by force_lazy_struct() in _cffi_backend.c */
     assert(ct->ct_flags & (CT_STRUCT | CT_UNION));
-
+    assert(!(ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
     if (ct->ct_flags_mut & CT_LAZY_FIELD_LIST) {
         builder_c_t *builder;
         char *p;
@@ -787,8 +787,8 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         const struct _cffi_field_s *fld;
         PyObject *fields, *args, *res;
 
-        assert(!((ct->ct_flags & CT_IS_OPAQUE) ||
-                 (ct->ct_flags_mut & CT_UNDER_CONSTRUCTION)));
+        // opaque types should never set CT_LAZY_FIELD_LIST
+        assert(!(ct->ct_flags & CT_IS_OPAQUE));
 
         builder = ct->ct_extra;
         assert(builder != NULL);
@@ -888,7 +888,6 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         return 1;
     }
     else {
-        assert(!(ct->ct_flags_mut & CT_UNDER_CONSTRUCTION));
         return 0;
     }
 }
