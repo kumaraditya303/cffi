@@ -273,7 +273,7 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
 #define CT_IS_BOOL             0x00080000
 #define CT_IS_FILE             0x00100000
 #define CT_IS_VOID_PTR         0x00200000
-#define CT_WITH_VAR_ARRAY      0x00400000 /* with open-ended array, anywhere */
+/* unused                      0x00400000 */
 /* unused                      0x00800000 */
 /* unused                      0x01000000 */
 /* unused                      0x02000000 */
@@ -292,6 +292,7 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
 */
 #define CT_CUSTOM_FIELD_POS     0x00000001
 #define CT_WITH_PACKED_CHANGE   0x00000002
+#define CT_WITH_VAR_ARRAY       0x00000004 /* with open-ended array, anywhere */
 
 typedef struct _ctypedescr {
     PyObject_VAR_HEAD
@@ -1518,7 +1519,7 @@ convert_vfield_from_object(char *data, CFieldObject *cf, PyObject *value,
     if (optvarsize == NULL) {
         return convert_field_from_object(data, cf, value);
     }
-    else if ((cf->cf_type->ct_flags & CT_WITH_VAR_ARRAY) != 0 &&
+    else if ((cf->cf_type->ct_flags_mut & CT_WITH_VAR_ARRAY) != 0 &&
              !CData_Check(value)) {
         Py_ssize_t subsize = cf->cf_type->ct_size;
         if (convert_struct_from_object(NULL, cf->cf_type, value, &subsize) < 0)
@@ -2274,7 +2275,7 @@ static Py_ssize_t _cdata_var_byte_size(CDataObject *cd)
     if (cd->c_type->ct_flags & CT_IS_PTR_TO_OWNED) {
         cd = (CDataObject *)((CDataObject_own_structptr *)cd)->structobj;
     }
-    if (cd->c_type->ct_flags & CT_WITH_VAR_ARRAY) {
+    if (cd->c_type->ct_flags_mut & CT_WITH_VAR_ARRAY) {
         return ((CDataObject_own_length *)cd)->length;
     }
     return -1;
@@ -3863,7 +3864,7 @@ convert_struct_to_owning_object(char *data, CTypeDescrObject *ct)
                         "return type is an opaque structure or union");
         return NULL;
     }
-    if (ct->ct_flags & CT_WITH_VAR_ARRAY) {
+    if (ct->ct_flags_mut & CT_WITH_VAR_ARRAY) {
         PyErr_SetString(PyExc_TypeError,
                   "return type is a struct/union with a varsize array member");
         return NULL;
@@ -3971,7 +3972,7 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
             if (force_lazy_struct(ctitem) < 0)   /* for CT_WITH_VAR_ARRAY */
                 return NULL;
 
-            if (ctitem->ct_flags & CT_WITH_VAR_ARRAY) {
+            if (ctitem->ct_flags_mut & CT_WITH_VAR_ARRAY) {
                 assert(ct->ct_flags & CT_IS_PTR_TO_OWNED);
                 dataoffset = offsetof(CDataObject_own_length, alignment);
 
@@ -5376,7 +5377,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
         if (ftype->ct_size < 0) {
             if ((ftype->ct_flags & CT_ARRAY) && fbitsize < 0
                     && (i == nb_fields - 1 || foffset != -1)) {
-                ct->ct_flags |= CT_WITH_VAR_ARRAY;
+                ct->ct_flags_mut |= CT_WITH_VAR_ARRAY;
             }
             else {
                 PyErr_Format(PyExc_TypeError,
@@ -5393,8 +5394,8 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                CT_WITH_VAR_ARRAY to any struct that contains either an open-
                ended array or another struct that recursively contains an
                open-ended array. */
-            if (ftype->ct_flags & CT_WITH_VAR_ARRAY)
-                ct->ct_flags |= CT_WITH_VAR_ARRAY;
+            if (ftype->ct_flags_mut & CT_WITH_VAR_ARRAY)
+                ct->ct_flags_mut |= CT_WITH_VAR_ARRAY;
         }
 
         if (is_union)
