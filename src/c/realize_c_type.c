@@ -598,14 +598,13 @@ realize_c_type_or_func_now(builder_c_t *builder, _cffi_opcode_t op,
                 UNLOCK_REALIZE();
                 return x;
             }
-#else
+#endif
             assert(builder->ctx.types[e->type_index] == op2);
             Py_INCREF(x);
 #ifdef Py_GIL_DISABLED
             cffi_atomic_store(&builder->ctx.types[e->type_index], x);
 #else
             builder->ctx.types[e->type_index] = x;
-#endif
 #endif
             UNLOCK_REALIZE();
             /* Done, leave without updating the "current" slot because
