@@ -475,6 +475,8 @@ ctypedescr_new(int name_size)
     ct->ct_stuff = NULL;
     ct->ct_weakreflist = NULL;
     ct->ct_unique_key = NULL;
+    ct->ct_lazy_field_list = 0;
+    ct->ct_under_construction = 0;
     PyObject_GC_Track(ct);
     return ct;
 }
@@ -5130,7 +5132,6 @@ new_array_type(CTypeDescrObject *ctptr, Py_ssize_t length)
     td->ct_length = length;
     td->ct_flags = flags;
     td->ct_flags_mut = 0;
-    td->ct_under_construction = 0;
     unique_key[0] = ctptr;
     unique_key[1] = (void *)length;
     return get_unique_type(td, unique_key, 2);
@@ -5170,7 +5171,6 @@ static PyObject *new_struct_or_union_type(const char *name, int flag)
     // may be unset later if this type needs lazy init
     td->ct_flags = flag | CT_IS_OPAQUE;
     td->ct_flags_mut = 0;
-    td->ct_under_construction = 0;
     td->ct_extra = NULL;
     memcpy(td->ct_name, name, namelen + 1);
     td->ct_name_position = namelen;
