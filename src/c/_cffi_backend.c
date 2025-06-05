@@ -5331,12 +5331,14 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     else
         sflags |= SF_PACKED;
 
+    PyObject *res = NULL;
+    Py_BEGIN_CRITICAL_SECTION(ct);
     is_union = ct->ct_flags & CT_UNION;
     if (!((ct->ct_flags & CT_UNION) || (ct->ct_flags & CT_STRUCT)) ||
         !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_under_construction))) {
         PyErr_SetString(PyExc_TypeError,
                         "first arg must be a non-initialized struct or union ctype");
-        return NULL;
+        goto finally;
     }
     assert((ct->ct_flags & CT_IS_OPAQUE) ^ (ct->ct_under_construction));
     ct->ct_flags_mut &= ~(CT_CUSTOM_FIELD_POS | CT_WITH_PACKED_CHANGE);
@@ -5350,7 +5352,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     nb_fields = PyList_GET_SIZE(fields);
     interned_fields = PyDict_New();
     if (interned_fields == NULL)
-        goto error;
+        goto finally;
 
     previous = (CFieldObject **)&ct->ct_extra;
 
@@ -5364,13 +5366,13 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                               &PyText_Type, &fname,
                               &CTypeDescr_Type, &ftype,
                               &fbitsize, &foffset))
-            goto error;
+            goto finally;
 
         if ((ftype->ct_flags & (CT_STRUCT | CT_UNION)) &&
             !(ftype->ct_flags & CT_IS_OPAQUE)) {
             /* force now the type of the nested field */
             if (force_lazy_struct(ftype) < 0)
-                goto error;
+                goto finally;
         }
 
         if (ftype->ct_size < 0) {
@@ -5383,7 +5385,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                              "field '%s.%s' has ctype '%s' of unknown size",
                              ct->ct_name, PyText_AS_UTF8(fname),
                              ftype->ct_name);
-                goto error;
+                goto finally;
             }
         }
         else if (ftype->ct_flags & (CT_STRUCT|CT_UNION)) {
@@ -5404,7 +5406,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
            field is an anonymous bitfield or if SF_PACKED */
         falignorg = get_alignment(ftype);
         if (falignorg < 0)
-            goto error;
+            goto finally;
         falign = (pack < falignorg) ? pack : falignorg;
 
         do_align = 1;
@@ -5451,7 +5453,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                 if (detect_custom_layout(ct, sflags, byteoffset, foffset,
                                          "wrong offset for field '",
                                          PyText_AS_UTF8(fname), "'") < 0)
-                    goto error;
+                    goto finally;
                 byteoffset = foffset;
             }
 
@@ -5471,7 +5473,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                                            cfsrc->cf_bitsize,
                                            cfsrc->cf_flags | fflags);
                     if (*previous == NULL)
-                        goto error;
+                        goto finally;
                     previous = &(*previous)->cf_next;
                 }
                 /* always forbid such structures from being passed by value */
@@ -5481,7 +5483,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                 *previous = _add_field(interned_fields, fname, ftype,
                                        byteoffset, bs_flag, -1, fflags);
                 if (*previous == NULL)
-                    goto error;
+                    goto finally;
                 previous = &(*previous)->cf_next;
             }
             if (ftype->ct_size >= 0)
@@ -5498,7 +5500,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                              "field '%s.%s' is a bitfield, "
                              "but a fixed offset is specified",
                              ct->ct_name, PyText_AS_UTF8(fname));
-                goto error;
+                goto finally;
             }
 
             if (!(ftype->ct_flags & (CT_PRIMITIVE_SIGNED |
@@ -5508,7 +5510,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                         "field '%s.%s' declared as '%s' cannot be a bit field",
                              ct->ct_name, PyText_AS_UTF8(fname),
                              ftype->ct_name);
-                goto error;
+                goto finally;
             }
             if (fbitsize > 8 * ftype->ct_size) {
                 PyErr_Format(PyExc_TypeError,
@@ -5516,7 +5518,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                              "exceeds the width of the type",
                              ct->ct_name, PyText_AS_UTF8(fname),
                              ftype->ct_name, fbitsize);
-                goto error;
+                goto finally;
             }
 
             /* compute the starting position of the theoretical field
@@ -5530,7 +5532,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                     PyErr_Format(PyExc_TypeError,
                                  "field '%s.%s' is declared with :0",
                                  ct->ct_name, PyText_AS_UTF8(fname));
-                    goto error;
+                    goto finally;
                 }
                 if (!(sflags & SF_MSVC_BITFIELDS)) {
                     /* GCC's notion of "ftype :0;" */
@@ -5570,7 +5572,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                                 "with 'packed', gcc would compile field "
                                 "'%s.%s' to reuse some bits in the previous "
                                 "field", ct->ct_name, PyText_AS_UTF8(fname));
-                            goto error;
+                            goto finally;
                         }
                         field_offset_bytes += falign;
                         assert(byteoffset < field_offset_bytes);
@@ -5621,7 +5623,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                                        field_offset_bytes, bitshift, fbitsize,
                                        fflags);
                     if (*previous == NULL)
-                        goto error;
+                        goto finally;
                     previous = &(*previous)->cf_next;
                 }
             }
@@ -5646,12 +5648,12 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     else {
         if (detect_custom_layout(ct, sflags, alignedsize,
                                  totalsize, "wrong total size", "", "") < 0)
-            goto error;
+            goto finally;
         if (totalsize < byteoffsetmax) {
             PyErr_Format(PyExc_TypeError,
                          "%s cannot be of size %zd: there are fields at least "
                          "up to %zd", ct->ct_name, totalsize, byteoffsetmax);
-            goto error;
+            goto finally;
         }
     }
     if (totalalignment < 0) {
@@ -5660,7 +5662,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     else {
         if (detect_custom_layout(ct, sflags, alignment, totalalignment,
                                  "wrong total alignment", "", "") < 0)
-            goto error;
+            goto finally;
     }
 
     ct->ct_size = totalsize;
@@ -5673,13 +5675,16 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 #else
     ct->ct_stuff = interned_fields;
 #endif
-    Py_INCREF(Py_None);
-    return Py_None;
+    res = Py_None;
+    Py_INCREF(res);
 
- error:
-    ct->ct_extra = NULL;
-    Py_XDECREF(interned_fields);
-    return NULL;
+finally:;
+    if (res == NULL) {
+        ct->ct_extra = NULL;
+        Py_XDECREF(interned_fields);
+    }
+    Py_END_CRITICAL_SECTION();
+    return res;
 }
 
 struct funcbuilder_s {
