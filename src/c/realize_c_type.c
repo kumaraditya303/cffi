@@ -474,7 +474,16 @@ _realize_c_struct_or_union(builder_c_t *builder, int sindex)
                a C expression to get its size.  We have to rely on
                complete_struct_or_union() to compute it now. */
             if (do_realize_lazy_struct(ct) < 0) {
-                builder->ctx.types[s->type_index] = op2;
+                LOCK_REALIZE();
+                // if no other thread changed it
+                if (builder->ctx.types[s->type_index] == x) {
+#ifdef Py_GIL_DISABLED
+                    cffi_atomic_store(&builder->ctx.types[s->type_index], op2);
+#else
+                    builder->ctx.types[s->type_index] = op2;
+#endif
+                }
+                UNLOCK_REALIZE();
                 return NULL;
             }
         }
