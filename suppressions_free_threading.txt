@@ -50,3 +50,4 @@ race_top:set_tp_bases
 race_top:type_set_bases_unlocked
 
 race:_PyVectorcall_FunctionInline
+race:PyObject_CallOneArg
