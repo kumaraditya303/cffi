@@ -510,7 +510,6 @@ realize_c_type_or_func_now(builder_c_t *builder, _cffi_opcode_t op,
         _cffi_opcode_t op2;
 
         e = &builder->ctx.enums[_CFFI_GETARG(op)];
-
 #ifdef Py_GIL_DISABLED
         op2 = cffi_atomic_load(&builder->ctx.types[e->type_index]);
 #else
@@ -606,7 +605,6 @@ realize_c_type_or_func_now(builder_c_t *builder, _cffi_opcode_t op,
             cffi_atomic_store(&builder->ctx.types[e->type_index], x);
 #else
             builder->ctx.types[e->type_index] = x;
-
 #endif
 #endif
             UNLOCK_REALIZE();
