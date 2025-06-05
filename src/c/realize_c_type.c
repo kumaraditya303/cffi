@@ -931,7 +931,7 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
 
 static int do_realize_lazy_struct(CTypeDescrObject *ct)
 {
-    if (cffi_check_flag(ct->ct_lazy_field_list)) {
+    if (cffi_check_flag(ct->ct_lazy_field_list) == 0) {
         return 0;
     }
     int res = 0;

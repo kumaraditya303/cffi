@@ -3364,6 +3364,7 @@ static PyObject *cdata_dir(PyObject *cd, PyObject *noarg)
         /* for non-opaque structs or unions */
         if (force_lazy_struct(ct) < 0)
             return NULL;
+        assert(ct->ct_stuff);
         return PyDict_Keys(ct->ct_stuff);
     }
     else {
