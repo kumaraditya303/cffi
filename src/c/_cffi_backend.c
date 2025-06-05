@@ -290,10 +290,8 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
 
   These may be set transiently if fields are lazily constructed.
 */
-// #define CT_LAZY_FIELD_LIST      0x00000001
-// #define CT_UNDER_CONSTRUCTION   0x00000002
-#define CT_CUSTOM_FIELD_POS     0x00000004
-#define CT_WITH_PACKED_CHANGE   0x00000008
+#define CT_CUSTOM_FIELD_POS     0x00000001
+#define CT_WITH_PACKED_CHANGE   0x00000002
 
 typedef struct _ctypedescr {
     PyObject_VAR_HEAD
@@ -318,7 +316,7 @@ typedef struct _ctypedescr {
                                or alignment of primitive and struct types;
                                always -1 for pointers */
     int ct_flags;           /* Immutable CT_xxx flags */
-    int ct_flags_mut;       /* Mutable flags (e.g., CT_LAZY_FIELD_LIST) */
+    int ct_flags_mut;       /* Mutable flags (e.g., CT_CUSTOM_FIELD_POS) */
     uint8_t ct_under_construction;
     uint8_t ct_lazy_field_list;
     int ct_name_position;   /* index in ct_name of where to put a var name */
