@@ -624,7 +624,7 @@ static int do_realize_lazy_struct(CTypeDescrObject *ct);
 
 /* returns 0 if the struct ctype is opaque, 1 if it is not, or -1 if
    an exception occurs */
-static inline
+static inline int
 force_lazy_struct(CTypeDescrObject *ct)
 {
 #ifdef Py_GIL_DISABLED
