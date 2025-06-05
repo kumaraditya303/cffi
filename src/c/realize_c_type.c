@@ -448,16 +448,27 @@ _realize_c_struct_or_union(builder_c_t *builder, int sindex)
             }
         }
 
+        LOCK_REALIZE();
         /* Update the "primary" OP_STRUCT_UNION slot */
         assert((((uintptr_t)x) & 1) == 0);
+#ifdef Py_GIL_DISABLED
+        if (((uintptr_t)builder->ctx.types[s->type_index] & 1) == 0) {
+            /* Another thread realized this already */
+            Py_DECREF(x);
+            x = builder->ctx.types[s->type_index];
+            assert((((uintptr_t)x) & 1) == 0);
+            Py_INCREF(x);
+            return x;
+        }
+#endif
         assert(builder->ctx.types[s->type_index] == op2);
         Py_INCREF(x);
 #ifdef Py_GIL_DISABLED
-        // probably needs realize lock
         cffi_atomic_store(&builder->ctx.types[s->type_index], x);
 #else
         builder->ctx.types[s->type_index] = x;
 #endif
+        UNLOCK_REALIZE();
         if (ct != NULL && s->size == (size_t)-2) {
             /* oops, this struct is unnamed and we couldn't generate
                a C expression to get its size.  We have to rely on
