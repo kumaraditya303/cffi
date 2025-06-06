@@ -411,7 +411,7 @@ _realize_c_struct_or_union(builder_c_t *builder, int sindex)
                 ct = (CTypeDescrObject *)x;
                 ct->ct_size = (Py_ssize_t)s->size;
                 // unset opaque flag temporarily added in
-                // new_struct_or_union_type since _CFFI_F_OPAUE isn't set
+                // new_struct_or_union_type since _CFFI_F_OPAQUE isn't set
                 ct->ct_flags &= ~CT_IS_OPAQUE;
                 ct->ct_length = s->alignment; /* may be -1 */
                 ct->ct_lazy_field_list = 1;
@@ -844,7 +844,7 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         const struct _cffi_field_s *fld;
         PyObject *fields, *args, *res;
 
-        // opaque types should never set CT_LAZY_FIELD_LIST
+        // opaque types should never set ct->ct_lazy_field_list
         assert(!(ct->ct_flags & CT_IS_OPAQUE));
 
         builder = ct->ct_extra;
