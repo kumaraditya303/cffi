@@ -2683,7 +2683,7 @@ cdata_slice(CDataObject *cd, PySliceObject *slice)
 #ifdef Py_GIL_DISABLED
         cffi_atomic_store((void **)&ct->ct_stuff, array_type);
 #else
-        ct->ct_stuff = array_type;
+        ct->ct_stuff = (PyObject *)array_type;
 #endif
     }
     Py_END_CRITICAL_SECTION();

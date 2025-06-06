@@ -1,3 +1,7 @@
+#ifndef CFFI_MISC_WIN32_H
+#define CFFI_MISC_WIN32_H
+
+
 #include <malloc.h>   /* for alloca() */
 
 
@@ -301,3 +305,5 @@ static void cffi_atomic_store_uint8(uint8_t *ptr, uint8_t value)
 {
     _InterlockedExchange8(ptr, value);
 }
+
+#endif /* CFFI_MISC_WIN32_H */
