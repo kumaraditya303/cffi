@@ -3954,6 +3954,11 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
     if (ct->ct_flags & CT_POINTER) {
         dataoffset = offsetof(CDataObject_own_nolength, alignment);
         ctitem = ct->ct_itemdescr;
+        if (ctitem->ct_flags & (CT_STRUCT | CT_UNION)) {
+            // call eagerly to avoid race on ct_size
+            if (force_lazy_struct(ctitem) < 0)   /* for CT_WITH_VAR_ARRAY */
+                return NULL;
+        }
         datasize = ctitem->ct_size;
         if (datasize < 0) {
             PyErr_Format(PyExc_TypeError,
@@ -3965,9 +3970,6 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
             datasize *= 2;   /* forcefully add another character: a null */
 
         if (ctitem->ct_flags & (CT_STRUCT | CT_UNION)) {
-            if (force_lazy_struct(ctitem) < 0)   /* for CT_WITH_VAR_ARRAY */
-                return NULL;
-
             if (ctitem->ct_flags_mut & CT_WITH_VAR_ARRAY) {
                 assert(ct->ct_flags & CT_IS_PTR_TO_OWNED);
                 dataoffset = offsetof(CDataObject_own_length, alignment);
