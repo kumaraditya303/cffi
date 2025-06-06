@@ -5152,7 +5152,7 @@ static PyObject *new_void_type(void)
 
     memcpy(td->ct_name, "void", name_size);
     td->ct_size = -1;
-    td->ct_flags = CT_VOID;
+    td->ct_flags = CT_VOID | CT_IS_OPAQUE;
     td->ct_flags_mut = 0;
     td->ct_unrealized_struct_or_union = 1;
     td->ct_name_position = strlen("void");
