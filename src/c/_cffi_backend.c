@@ -1172,13 +1172,9 @@ convert_to_object(char *data, CTypeDescrObject *ct)
                          ct->ct_name);
             return NULL;
         }
-        else if (cffi_check_flag(ct->ct_under_construction)) {
-            PyErr_Format(PyExc_TypeError,
-                         "'%s' is not completed yet",
-                         ct->ct_name);
-            return NULL;
-        }
         else if (ct->ct_flags & (CT_STRUCT|CT_UNION)) {
+            if (force_lazy_struct(ct) < 0)
+                return NULL;
             return new_simple_cdata(data, ct);
         }
         else if (ct->ct_flags & CT_ARRAY) {

@@ -941,11 +941,8 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         assert(ct->ct_stuff != NULL);
         cffi_set_flag(ct->ct_lazy_field_list, 0);
         Py_DECREF(res);
-        return 1;
     }
-    else {
-        return 0;
-    }
+    return ct->ct_stuff != NULL;
 }
 
 
