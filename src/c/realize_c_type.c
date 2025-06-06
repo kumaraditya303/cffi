@@ -448,7 +448,7 @@ _realize_c_struct_or_union(builder_c_t *builder, int sindex)
             }
         }
         if (ct != NULL) {
-            cffi_set_flag(ct->ct_incomplete_struct_or_union, 0);
+            cffi_set_flag(ct->ct_unrealized_struct_or_union, 0);
         }
 
         LOCK_REALIZE();

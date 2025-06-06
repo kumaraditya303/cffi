@@ -320,7 +320,7 @@ typedef struct _ctypedescr {
     int ct_flags_mut;       /* Mutable flags (e.g., CT_CUSTOM_FIELD_POS) */
     uint8_t ct_under_construction;
     uint8_t ct_lazy_field_list;
-    uint8_t ct_incomplete_struct_or_union;
+    uint8_t ct_unrealized_struct_or_union;
     int ct_name_position;   /* index in ct_name of where to put a var name */
     char ct_name[1];        /* string, e.g. "int *" for pointers to ints */
 } CTypeDescrObject;
@@ -477,7 +477,7 @@ ctypedescr_new(int name_size)
     ct->ct_unique_key = NULL;
     ct->ct_lazy_field_list = 0;
     ct->ct_under_construction = 0;
-    ct->ct_incomplete_struct_or_union = 0;
+    ct->ct_unrealized_struct_or_union = 0;
     PyObject_GC_Track(ct);
     return ct;
 }
@@ -646,7 +646,7 @@ force_lazy_struct(CTypeDescrObject *ct)
 static PyObject *ctypeget_fields(CTypeDescrObject *ct, void *context)
 {
     if (ct->ct_flags & (CT_STRUCT | CT_UNION)) {
-        if (!(ct->ct_flags & CT_IS_OPAQUE || cffi_check_flag(ct->ct_incomplete_struct_or_union))) {
+        if (!(ct->ct_flags & CT_IS_OPAQUE || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
             CFieldObject *cf;
             PyObject *res;
             if (force_lazy_struct(ct) < 0)
@@ -1175,7 +1175,7 @@ convert_to_object(char *data, CTypeDescrObject *ct)
             return NULL;
         }
         else if (cffi_check_flag(ct->ct_under_construction) ||
-                 cffi_check_flag(ct->ct_incomplete_struct_or_union)) {
+                 cffi_check_flag(ct->ct_unrealized_struct_or_union)) {
             PyErr_Format(PyExc_TypeError,
                          "'%s' is not completed yet",
                          ct->ct_name);
@@ -1958,7 +1958,7 @@ get_alignment(CTypeDescrObject *ct)
     int align;
  retry:
     if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) &&
-        !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_incomplete_struct_or_union))) {
+        !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
         // needs critical section
         align = ct->ct_length;
         if (align == -1 && cffi_check_flag(ct->ct_lazy_field_list)) {
@@ -3363,7 +3363,7 @@ static PyObject *cdata_dir(PyObject *cd, PyObject *noarg)
         ct = ct->ct_itemdescr;
     }
     if ((ct->ct_flags & (CT_STRUCT | CT_UNION)) &&
-        !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_incomplete_struct_or_union))) {
+        !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
 
         /* for non-opaque structs or unions */
         if (force_lazy_struct(ct) < 0)
@@ -5151,7 +5151,7 @@ static PyObject *new_void_type(void)
     td->ct_size = -1;
     td->ct_flags = CT_VOID;
     td->ct_flags_mut = 0;
-    td->ct_incomplete_struct_or_union = 1;
+    td->ct_unrealized_struct_or_union = 1;
     td->ct_name_position = strlen("void");
     unique_key[0] = "void";
     return get_unique_type(td, unique_key, 1);
@@ -5173,7 +5173,7 @@ static PyObject *new_struct_or_union_type(const char *name, int flag)
     td->ct_length = -1;
     td->ct_flags = flag;
     td->ct_flags_mut = 0;
-    td->ct_incomplete_struct_or_union = 1;
+    td->ct_unrealized_struct_or_union = 1;
     td->ct_extra = NULL;
     memcpy(td->ct_name, name, namelen + 1);
     td->ct_name_position = namelen;
@@ -5338,7 +5338,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
     Py_BEGIN_CRITICAL_SECTION(ct);
     is_union = ct->ct_flags & CT_UNION;
     if (!((ct->ct_flags & CT_UNION) || (ct->ct_flags & CT_STRUCT)) ||
-        !(cffi_check_flag(ct->ct_incomplete_struct_or_union) || cffi_check_flag(ct->ct_under_construction))) {
+        !(cffi_check_flag(ct->ct_unrealized_struct_or_union) || cffi_check_flag(ct->ct_under_construction))) {
         PyErr_SetString(PyExc_TypeError,
                         "first arg must be a non-initialized struct or union ctype");
         goto finally;
@@ -5371,7 +5371,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
             goto finally;
 
         if ((ftype->ct_flags & (CT_STRUCT | CT_UNION)) &&
-            !((ftype->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_incomplete_struct_or_union))) {
+            !((ftype->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
 
             /* force now the type of the nested field */
             if (force_lazy_struct(ftype) < 0)
@@ -5670,7 +5670,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 
     ct->ct_size = totalsize;
     ct->ct_length = totalalignment;
-    cffi_set_flag(ct->ct_incomplete_struct_or_union, 0);
+    cffi_set_flag(ct->ct_unrealized_struct_or_union, 0);
 #ifdef Py_GIL_DISABLED
     /* use seq consistency at last after writing other fields
        to ensure other fields are visible to threads */
@@ -6139,7 +6139,7 @@ static PyObject *new_function_type(PyObject *fargs,   /* tuple */
         char *msg;
         if (fresult->ct_flags & CT_IS_OPAQUE)
             msg = "result type '%s' is opaque";
-        else if (cffi_check_flag(fresult->ct_incomplete_struct_or_union))
+        else if (cffi_check_flag(fresult->ct_unrealized_struct_or_union))
             msg = "result type '%s' is not yet initialized";
         else if (cffi_check_flag(fresult->ct_under_construction))
             msg = "result type '%s' is under construction";
