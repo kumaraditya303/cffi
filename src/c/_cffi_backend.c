@@ -2975,7 +2975,11 @@ cdata_getattro(CDataObject *cd, PyObject *attr)
     if (ct->ct_flags & (CT_STRUCT|CT_UNION)) {
         switch (force_lazy_struct(ct)) {
         case 1:
+#ifdef Py_GIL_DISABLED
+            cf = (CFieldObject *)PyDict_GetItem(cffi_atomic_load(&ct->ct_stuff), attr);
+#else
             cf = (CFieldObject *)PyDict_GetItem(ct->ct_stuff, attr);
+#endif
             if (cf != NULL) {
                 /* read the field 'cf' */
                 char *data = cd->c_data + cf->cf_offset;
@@ -3960,6 +3964,10 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
     if (ct->ct_flags & CT_POINTER) {
         dataoffset = offsetof(CDataObject_own_nolength, alignment);
         ctitem = ct->ct_itemdescr;
+        if (ctitem->ct_flags & (CT_STRUCT | CT_UNION)) {
+            if (force_lazy_struct(ctitem) < 0)
+                return NULL;
+        }
         datasize = cffi_get_size(ctitem);
         if (datasize < 0) {
             PyErr_Format(PyExc_TypeError,
@@ -3971,8 +3979,6 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
             datasize *= 2;   /* forcefully add another character: a null */
 
         if (ctitem->ct_flags & (CT_STRUCT | CT_UNION)) {
-            if (force_lazy_struct(ctitem) < 0)   /* for CT_WITH_VAR_ARRAY */
-                return NULL;
             if (ctitem->ct_flags_mut & CT_WITH_VAR_ARRAY) {
                 assert(ct->ct_flags & CT_IS_PTR_TO_OWNED);
                 dataoffset = offsetof(CDataObject_own_length, alignment);
