@@ -2976,7 +2976,7 @@ cdata_getattro(CDataObject *cd, PyObject *attr)
         switch (force_lazy_struct(ct)) {
         case 1:
 #ifdef Py_GIL_DISABLED
-            cf = (CFieldObject *)PyDict_GetItem(cffi_atomic_load(&ct->ct_stuff), attr);
+            cf = (CFieldObject *)PyDict_GetItem((PyObject *)cffi_atomic_load((void **)&ct->ct_stuff), attr);
 #else
             cf = (CFieldObject *)PyDict_GetItem(ct->ct_stuff, attr);
 #endif
