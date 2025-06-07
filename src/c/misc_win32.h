@@ -295,6 +295,21 @@ static uint8_t cffi_atomic_load_uint8(uint8_t *ptr)
 #endif
 }
 
+static Py_ssize_t cffi_atomic_load_ssize(Py_ssize_t *ptr)
+{
+#if defined(_M_X64) || defined(_M_IX86)
+    return *(volatile Py_ssize_t *)ptr;
+#elif defined(_M_ARM64)
+    return (Py_ssize_t)__ldar64((volatile unsigned __int64 *)ptr);
+#else
+# error "no implementation of cffi_atomic_load_ssize"
+#endif
+}
+
+static void cffi_atomic_store_ssize(Py_ssize_t *ptr, Py_ssize_t value)
+{
+    _InterlockedExchangePointer(ptr, value);
+}
 
 static void cffi_atomic_store(void **ptr, void *value)
 {

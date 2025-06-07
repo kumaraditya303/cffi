@@ -1,7 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include "structmember.h"
-
+#include "misc_thread_common.h"
 #define CFFI_VERSION  "1.18.0.dev0"
 
 #ifdef MS_WIN32
@@ -14,6 +14,7 @@
 #include <errno.h>
 #include <ffi.h>
 #include <sys/mman.h>
+#include "misc_thread_posix.h"
 #endif
 
 /* this block of #ifs should be kept exactly identical between
@@ -1872,8 +1873,8 @@ convert_from_object(char *data, CTypeDescrObject *ct, PyObject *init)
     if (ct->ct_flags & (CT_STRUCT|CT_UNION)) {
 
         if (CData_Check(init)) {
-            if (((CDataObject *)init)->c_type == ct && ct->ct_size >= 0) {
-                memcpy(data, ((CDataObject *)init)->c_data, ct->ct_size);
+            if (((CDataObject *)init)->c_type == ct && cffi_get_size(ct) >= 0) {
+                memcpy(data, ((CDataObject *)init)->c_data, cffi_get_size(ct));
                 return 0;
             }
         }
@@ -1962,11 +1963,13 @@ get_alignment(CTypeDescrObject *ct)
     if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) &&
         !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
         // needs critical section
+        Py_BEGIN_CRITICAL_SECTION(ct);
         align = ct->ct_length;
         if (align == -1 && cffi_check_flag(ct->ct_lazy_field_list)) {
             force_lazy_struct(ct);
             align = ct->ct_length;
         }
+        Py_END_CRITICAL_SECTION();
     }
     else if (ct->ct_flags & (CT_POINTER|CT_FUNCTIONPTR)) {
         struct aligncheck_ptr { char x; char *y; };
@@ -2324,7 +2327,7 @@ static Py_ssize_t cdataowning_size_bytes(CDataObject *cd)
         else if (cd->c_type->ct_flags & CT_ARRAY)
             size = get_array_length(cd) * cd->c_type->ct_itemdescr->ct_size;
         else
-            size = cd->c_type->ct_size;
+            size = cffi_get_size(cd->c_type);
     }
     return size;
 }
@@ -2617,7 +2620,7 @@ _cdata_get_indexed_ptr(CDataObject *cd, PyObject *key)
                      cd->c_type->ct_name);
         return NULL;
     }
-    return cd->c_data + i * cd->c_type->ct_itemdescr->ct_size;
+    return cd->c_data + i * cffi_get_size(cd->c_type->ct_itemdescr);
 }
 
 static PyObject *
@@ -2885,7 +2888,7 @@ _cdata_add_or_sub(PyObject *v, PyObject *w, int sign)
                      cd->c_type->ct_name);
         return NULL;
     }
-    itemsize = ctptr->ct_itemdescr->ct_size;
+    itemsize = cffi_get_size(ctptr->ct_itemdescr);
     if (itemsize < 0) {
         if (ctptr->ct_flags & CT_IS_VOID_PTR) {
             itemsize = 1;
@@ -3131,7 +3134,7 @@ _prepare_pointer_call_argument(CTypeDescrObject *ctptr, PyObject *init,
         goto convert_default;
     }
 
-    if (ctitem->ct_size <= 0)
+    if (cffi_get_size(ctitem) <= 0)
         goto convert_default;
     datasize = MUL_WRAPAROUND(length, ctitem->ct_size);
     if ((datasize / ctitem->ct_size) != length) {
@@ -5671,7 +5674,8 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
             goto finally;
     }
 
-    ct->ct_size = totalsize;
+
+    cffi_set_size(ct, totalsize);
     ct->ct_length = totalalignment;
     cffi_set_flag(ct->ct_unrealized_struct_or_union, 0);
 #ifdef Py_GIL_DISABLED
@@ -5746,7 +5750,7 @@ static ffi_type *fb_fill_type(struct funcbuilder_s *fb, CTypeDescrObject *ct,
         return &ffi_type_void;
     }
 
-    if (ct->ct_size <= 0) {
+    if (cffi_get_size(ct) <= 0) {
         PyErr_Format(PyExc_TypeError,
                      ct->ct_size < 0 ? "ctype '%s' has incomplete type"
                                      : "ctype '%s' has size 0",
@@ -6137,7 +6141,7 @@ static PyObject *new_function_type(PyObject *fargs,   /* tuple */
     Py_ssize_t i;
     const void **unique_key;
 
-    if ((fresult->ct_size < 0 && !(fresult->ct_flags & CT_VOID)) ||
+    if ((cffi_get_size(fresult) < 0 && !(fresult->ct_flags & CT_VOID)) ||
         (fresult->ct_flags & CT_ARRAY)) {
         char *msg;
         if (fresult->ct_flags & CT_IS_OPAQUE)
