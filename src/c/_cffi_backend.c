@@ -5102,7 +5102,7 @@ new_array_type(CTypeDescrObject *ctptr, Py_ssize_t length)
         return NULL;
     }
     ctitem = ctptr->ct_itemdescr;
-    if (ctitem->ct_size < 0) {
+    if (cffi_get_size(ctitem) < 0) {
         PyErr_Format(PyExc_ValueError, "array item of unknown size: '%s'",
                      ctitem->ct_name);
         return NULL;
@@ -5115,8 +5115,8 @@ new_array_type(CTypeDescrObject *ctptr, Py_ssize_t length)
     }
     else {
         sprintf(extra_text, "[%llu]", (unsigned PY_LONG_LONG)length);
-        arraysize = MUL_WRAPAROUND(length, ctitem->ct_size);
-        if (length > 0 && (arraysize / length) != ctitem->ct_size) {
+        arraysize = MUL_WRAPAROUND(length, cffi_get_size(ctitem));
+        if (length > 0 && (arraysize / length) != cffi_get_size(ctitem)) {
             PyErr_SetString(PyExc_OverflowError,
                             "array size would overflow a Py_ssize_t");
             return NULL;
@@ -5375,7 +5375,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                 goto finally;
         }
 
-        if (ftype->ct_size < 0) {
+        if (cffi_get_size(ftype) < 0) {
             if ((ftype->ct_flags & CT_ARRAY) && fbitsize < 0
                     && (i == nb_fields - 1 || foffset != -1)) {
                 ct->ct_flags_mut |= CT_WITH_VAR_ARRAY;
