@@ -646,7 +646,8 @@ force_lazy_struct(CTypeDescrObject *ct)
 static PyObject *ctypeget_fields(CTypeDescrObject *ct, void *context)
 {
     if (ct->ct_flags & (CT_STRUCT | CT_UNION)) {
-        if (!(ct->ct_flags & CT_IS_OPAQUE || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
+        assert((ct->ct_flags & CT_IS_OPAQUE) == 0);
+        if (!cffi_check_flag(ct->ct_unrealized_struct_or_union)) {
             CFieldObject *cf;
             PyObject *res;
             if (force_lazy_struct(ct) < 0)
@@ -3364,8 +3365,8 @@ static PyObject *cdata_dir(PyObject *cd, PyObject *noarg)
         ct = ct->ct_itemdescr;
     }
     if ((ct->ct_flags & (CT_STRUCT | CT_UNION)) &&
-        !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
-
+        !(cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
+        assert((ct->ct_flags & CT_IS_OPAQUE) == 0);
         /* for non-opaque structs or unions */
         if (force_lazy_struct(ct) < 0)
             return NULL;
@@ -5154,7 +5155,6 @@ static PyObject *new_void_type(void)
     td->ct_size = -1;
     td->ct_flags = CT_VOID | CT_IS_OPAQUE;
     td->ct_flags_mut = 0;
-    td->ct_unrealized_struct_or_union = 1;
     td->ct_name_position = strlen("void");
     unique_key[0] = "void";
     return get_unique_type(td, unique_key, 1);
@@ -5374,8 +5374,8 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
             goto finally;
 
         if ((ftype->ct_flags & (CT_STRUCT | CT_UNION)) &&
-            !((ftype->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
-
+            !(cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
+            assert((ftype->ct_flags & CT_IS_OPAQUE) == 0);
             /* force now the type of the nested field */
             if (force_lazy_struct(ftype) < 0)
                 goto finally;
