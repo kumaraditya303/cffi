@@ -87,4 +87,5 @@ static void cffi_atomic_store_ssize(Py_ssize_t *ptr, Py_ssize_t value)
 }
 
 #endif
+
 #endif /* CFFI_MISC_THREAD_POSIX_H */
