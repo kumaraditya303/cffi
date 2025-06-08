@@ -286,15 +286,6 @@ static int PyWeakref_GetRef(PyObject *ref, PyObject **pobj)
                            CT_PRIMITIVE_COMPLEX)
 
 
-/*
-  Values for mutable ct_flags_mut flags.
-
-  These may be set transiently if fields are lazily constructed.
-*/
-#define CT_CUSTOM_FIELD_POS     0x00000001
-#define CT_WITH_PACKED_CHANGE   0x00000002
-#define CT_WITH_VAR_ARRAY       0x00000004 /* with open-ended array, anywhere */
-
 typedef struct _ctypedescr {
     PyObject_VAR_HEAD
 
@@ -318,10 +309,12 @@ typedef struct _ctypedescr {
                                or alignment of primitive and struct types;
                                always -1 for pointers */
     int ct_flags;           /* Immutable CT_xxx flags */
-    int ct_flags_mut;       /* Mutable flags (e.g., CT_CUSTOM_FIELD_POS) */
     uint8_t ct_under_construction;
     uint8_t ct_lazy_field_list;
     uint8_t ct_unrealized_struct_or_union;
+    uint8_t ct_custom_field_pos;
+    uint8_t ct_with_packed_change;
+    uint8_t ct_with_var_array; /* with open-ended array, anywhere */
     int ct_name_position;   /* index in ct_name of where to put a var name */
     char ct_name[1];        /* string, e.g. "int *" for pointers to ints */
 } CTypeDescrObject;
@@ -479,6 +472,9 @@ ctypedescr_new(int name_size)
     ct->ct_lazy_field_list = 0;
     ct->ct_under_construction = 0;
     ct->ct_unrealized_struct_or_union = 0;
+    ct->ct_custom_field_pos = 0;
+    ct->ct_with_packed_change = 0;
+    ct->ct_with_var_array = 0;
     PyObject_GC_Track(ct);
     return ct;
 }
@@ -1519,7 +1515,7 @@ convert_vfield_from_object(char *data, CFieldObject *cf, PyObject *value,
     if (optvarsize == NULL) {
         return convert_field_from_object(data, cf, value);
     }
-    else if ((cf->cf_type->ct_flags_mut & CT_WITH_VAR_ARRAY) != 0 &&
+    else if (cffi_check_flag(cf->cf_type->ct_with_var_array) != 0 &&
              !CData_Check(value)) {
         Py_ssize_t subsize = cf->cf_type->ct_size;
         if (convert_struct_from_object(NULL, cf->cf_type, value, &subsize) < 0)
@@ -1956,14 +1952,12 @@ get_alignment(CTypeDescrObject *ct)
  retry:
     if ((ct->ct_flags & (CT_PRIMITIVE_ANY|CT_STRUCT|CT_UNION)) &&
         !((ct->ct_flags & CT_IS_OPAQUE) || cffi_check_flag(ct->ct_unrealized_struct_or_union))) {
-        // needs critical section
-        Py_BEGIN_CRITICAL_SECTION(ct);
-        align = ct->ct_length;
-        if (align == -1 && cffi_check_flag(ct->ct_lazy_field_list)) {
-            force_lazy_struct(ct);
-            align = ct->ct_length;
+        if (cffi_check_flag(ct->ct_lazy_field_list)) {
+            if (force_lazy_struct(ct) < 0) {
+                return -1;
+            }
         }
-        Py_END_CRITICAL_SECTION();
+        align = ct->ct_length;
     }
     else if (ct->ct_flags & (CT_POINTER|CT_FUNCTIONPTR)) {
         struct aligncheck_ptr { char x; char *y; };
@@ -2277,7 +2271,7 @@ static Py_ssize_t _cdata_var_byte_size(CDataObject *cd)
     if (cd->c_type->ct_flags & CT_IS_PTR_TO_OWNED) {
         cd = (CDataObject *)((CDataObject_own_structptr *)cd)->structobj;
     }
-    if (cd->c_type->ct_flags_mut & CT_WITH_VAR_ARRAY) {
+    if (cffi_check_flag(cd->c_type->ct_with_var_array)) {
         return ((CDataObject_own_length *)cd)->length;
     }
     return -1;
@@ -3870,7 +3864,7 @@ convert_struct_to_owning_object(char *data, CTypeDescrObject *ct)
                         "return type is an opaque structure or union");
         return NULL;
     }
-    if (ct->ct_flags_mut & CT_WITH_VAR_ARRAY) {
+    if (cffi_check_flag(ct->ct_with_var_array)) {
         PyErr_SetString(PyExc_TypeError,
                   "return type is a struct/union with a varsize array member");
         return NULL;
@@ -3979,7 +3973,7 @@ static PyObject *direct_newp(CTypeDescrObject *ct, PyObject *init,
             datasize *= 2;   /* forcefully add another character: a null */
 
         if (ctitem->ct_flags & (CT_STRUCT | CT_UNION)) {
-            if (ctitem->ct_flags_mut & CT_WITH_VAR_ARRAY) {
+            if (cffi_check_flag(ctitem->ct_with_var_array)) {
                 assert(ct->ct_flags & CT_IS_PTR_TO_OWNED);
                 dataoffset = offsetof(CDataObject_own_length, alignment);
 
@@ -5002,7 +4996,6 @@ static PyObject *new_primitive_type(const char *name)
     td->ct_length = ptypes->align;
     td->ct_extra = ffitype;
     td->ct_flags = ptypes->flags;
-    td->ct_flags_mut = 0;
     if (td->ct_flags & (CT_PRIMITIVE_SIGNED | CT_PRIMITIVE_CHAR)) {
         if (td->ct_size <= (Py_ssize_t)sizeof(long))
             td->ct_flags |= CT_PRIMITIVE_FITS_LONG;
@@ -5056,7 +5049,6 @@ static PyObject *new_pointer_type(CTypeDescrObject *ctitem)
         ((ctitem->ct_flags & CT_PRIMITIVE_CHAR) &&
          ctitem->ct_size == sizeof(char)))
         td->ct_flags |= CT_IS_VOIDCHAR_PTR;   /* 'void *' or 'char *' only */
-    td->ct_flags_mut = 0;
     unique_key[0] = ctitem;
     return get_unique_type(td, unique_key, 1);
 }
@@ -5137,7 +5129,6 @@ new_array_type(CTypeDescrObject *ctptr, Py_ssize_t length)
     td->ct_size = arraysize;
     td->ct_length = length;
     td->ct_flags = flags;
-    td->ct_flags_mut = 0;
     unique_key[0] = ctptr;
     unique_key[1] = (void *)length;
     return get_unique_type(td, unique_key, 2);
@@ -5154,7 +5145,6 @@ static PyObject *new_void_type(void)
     memcpy(td->ct_name, "void", name_size);
     td->ct_size = -1;
     td->ct_flags = CT_VOID | CT_IS_OPAQUE;
-    td->ct_flags_mut = 0;
     td->ct_name_position = strlen("void");
     unique_key[0] = "void";
     return get_unique_type(td, unique_key, 1);
@@ -5175,7 +5165,6 @@ static PyObject *new_struct_or_union_type(const char *name, int flag)
     td->ct_size = -1;
     td->ct_length = -1;
     td->ct_flags = flag;
-    td->ct_flags_mut = 0;
     td->ct_unrealized_struct_or_union = 1;
     td->ct_extra = NULL;
     memcpy(td->ct_name, name, namelen + 1);
@@ -5299,14 +5288,13 @@ static int detect_custom_layout(CTypeDescrObject *ct, int sflags,
                          ct->ct_name);
             return -1;
         }
-        ct->ct_flags_mut |= CT_CUSTOM_FIELD_POS;
+        cffi_set_flag(ct->ct_custom_field_pos, 1);
     }
     return 0;
 }
 
 #define ROUNDUP_BYTES(bytes, bits)    ((bytes) + ((bits) > 0))
 
-// needs critical section
 static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
 {
     CTypeDescrObject *ct;
@@ -5346,7 +5334,8 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                         "first arg must be a non-initialized struct or union ctype");
         goto finally;
     }
-    ct->ct_flags_mut &= ~(CT_CUSTOM_FIELD_POS | CT_WITH_PACKED_CHANGE);
+    cffi_set_flag(ct->ct_custom_field_pos, 0);
+    cffi_set_flag(ct->ct_with_packed_change, 0);
 
     alignment = 1;
     byteoffset = 0;     /* the real value is 'byteoffset+bitoffset*8', which */
@@ -5384,7 +5373,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
         if (cffi_get_size(ftype) < 0) {
             if ((ftype->ct_flags & CT_ARRAY) && fbitsize < 0
                     && (i == nb_fields - 1 || foffset != -1)) {
-                ct->ct_flags_mut |= CT_WITH_VAR_ARRAY;
+                cffi_set_flag(ct->ct_with_var_array, 1);
             }
             else {
                 PyErr_Format(PyExc_TypeError,
@@ -5398,11 +5387,12 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
             /* GCC (or maybe C99) accepts var-sized struct fields that are not
                the last field of a larger struct.  That's why there is no
                check here for "last field": we propagate the flag
-               CT_WITH_VAR_ARRAY to any struct that contains either an open-
+               ct_with_var_array to any struct that contains either an open-
                ended array or another struct that recursively contains an
                open-ended array. */
-            if (ftype->ct_flags_mut & CT_WITH_VAR_ARRAY)
-                ct->ct_flags_mut |= CT_WITH_VAR_ARRAY;
+            if (cffi_check_flag(ftype->ct_with_var_array)) {
+                cffi_set_flag(ct->ct_with_var_array, 1);
+            }
         }
 
         if (is_union)
@@ -5450,12 +5440,12 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
             byteoffset = (byteoffset + falign-1) & ~(falign-1);
 
             if (byteoffsetorg != byteoffset) {
-                ct->ct_flags_mut |= CT_WITH_PACKED_CHANGE;
+                cffi_set_flag(ct->ct_with_packed_change, 1);
             }
 
             if (foffset >= 0) {
                 /* a forced field position: ignore the offset just computed,
-                   except to know if we must set CT_CUSTOM_FIELD_POS */
+                   except to know if we must set ct_custom_field_pos */
                 if (detect_custom_layout(ct, sflags, byteoffset, foffset,
                                          "wrong offset for field '",
                                          PyText_AS_UTF8(fname), "'") < 0)
@@ -5483,7 +5473,7 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
                     previous = &(*previous)->cf_next;
                 }
                 /* always forbid such structures from being passed by value */
-                ct->ct_flags_mut |= CT_CUSTOM_FIELD_POS;
+                cffi_set_flag(ct->ct_custom_field_pos, 1);
             }
             else {
                 *previous = _add_field(interned_fields, fname, ftype,
@@ -5768,7 +5758,7 @@ static ffi_type *fb_fill_type(struct funcbuilder_s *fb, CTypeDescrObject *ct,
            differently: e.g. on x86-64, "b" ends up in register "rsi" in
            the first case and "rdi" in the second case.
 
-           Another reason for CT_CUSTOM_FIELD_POS would be anonymous
+           Another reason for ct_custom_field_pos would be anonymous
            nested structures: we lost the information about having it
            here, so better safe (and forbid it) than sorry (and maybe
            crash).  Note: it seems we only get in this case with
@@ -5776,7 +5766,7 @@ static ffi_type *fb_fill_type(struct funcbuilder_s *fb, CTypeDescrObject *ct,
         */
         if (force_lazy_struct(ct) < 0)
             return NULL;
-        if (ct->ct_flags_mut & CT_CUSTOM_FIELD_POS) {
+        if (cffi_check_flag(ct->ct_custom_field_pos)) {
             /* these NotImplementedErrors may be caught and ignored until
                a real call is made to a function of this type */
             return fb_unsupported(ct, place,
@@ -5786,7 +5776,7 @@ static ffi_type *fb_fill_type(struct funcbuilder_s *fb, CTypeDescrObject *ct,
         }
         /* Another reason: __attribute__((packed)) is not supported by libffi.
         */
-        if (ct->ct_flags_mut & CT_WITH_PACKED_CHANGE) {
+        if (cffi_check_flag(ct->ct_with_packed_change)) {
             return fb_unsupported(ct, place,
                 "It is a 'packed' structure, with a different layout than "
                 "expected by libffi");
@@ -6059,7 +6049,6 @@ static CTypeDescrObject *fb_prepare_ctype(struct funcbuilder_s *fb,
     fct->ct_extra = NULL;
     fct->ct_size = sizeof(void(*)(void));
     fct->ct_flags = CT_FUNCTIONPTR;
-    fct->ct_flags_mut = 0;
     return fct;
 
  error:
@@ -6769,7 +6758,9 @@ static PyObject *b_new_enum_type(PyObject *self, PyObject *args)
     td->ct_length = basetd->ct_length;   /* alignment */
     td->ct_extra = basetd->ct_extra;     /* ffi type  */
     td->ct_flags = basetd->ct_flags | CT_IS_ENUM;
-    td->ct_flags_mut = basetd->ct_flags_mut;
+    td->ct_custom_field_pos = cffi_check_flag(basetd->ct_custom_field_pos);
+    td->ct_with_packed_change = cffi_check_flag(basetd->ct_with_packed_change);
+    td->ct_with_var_array = cffi_check_flag(basetd->ct_with_var_array);
     td->ct_name_position = name_size - 1;
     return (PyObject *)td;
 
