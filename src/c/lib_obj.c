@@ -147,7 +147,7 @@ static PyObject *lib_build_cpython_func(LibObject *lib,
        condition below still works correctly. */
     i = type_index + 1;
 #ifdef Py_GIL_DISABLED
-    while (_CFFI_GETOP(cffi_atomic_load(opcodes[i])) != _CFFI_OP_FUNCTION_END)
+    while (_CFFI_GETOP(cffi_atomic_load(&opcodes[i])) != _CFFI_OP_FUNCTION_END)
 #else
     while (_CFFI_GETOP(opcodes[i]) != _CFFI_OP_FUNCTION_END)
 #endif
@@ -155,7 +155,7 @@ static PyObject *lib_build_cpython_func(LibObject *lib,
     pfargs = alloca(sizeof(CTypeDescrObject *) * (i - type_index - 1));
     i = type_index + 1;
 #ifdef Py_GIL_DISABLED
-    while (_CFFI_GETOP(cffi_atomic_load(opcodes[i])) != _CFFI_OP_FUNCTION_END) {
+    while (_CFFI_GETOP(cffi_atomic_load(&opcodes[i])) != _CFFI_OP_FUNCTION_END) {
 #else
     while (_CFFI_GETOP(opcodes[i]) != _CFFI_OP_FUNCTION_END) {
 #endif
