@@ -586,7 +586,7 @@ jobs:
 
   check:
     if: always()
-    needs: [python_sdist, linux, macos, windows, clang_TSAN, merge_artifacts]
+    needs: [python_sdist, linux, macos, windows, clang_TSAN, pytest-run-parallel, merge_artifacts]
     runs-on: ubuntu-latest
     steps:
     - name: Verify all previous jobs succeeded (provides a single check to sample for gating purposes)
