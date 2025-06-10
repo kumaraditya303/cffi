@@ -844,7 +844,7 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         int n, i, sflags;
         const struct _cffi_struct_union_s *s;
         const struct _cffi_field_s *fld;
-        PyObject *fields, *args, *res;
+        PyObject *fields, *res;
 
         // opaque types should never set ct->ct_lazy_field_list
         assert(!(ct->ct_flags & CT_IS_OPAQUE));
@@ -922,19 +922,12 @@ static int do_realize_lazy_struct_lock_held(CTypeDescrObject *ct)
         if (s->flags & _CFFI_F_PACKED)
             sflags |= SF_PACKED;
 
-        args = Py_BuildValue("(OOOnii)", ct, fields, Py_None,
-                             (Py_ssize_t)s->size,
-                             s->alignment,
-                             sflags);
-        Py_DECREF(fields);
-        if (args == NULL)
-            return -1;
-
         ct->ct_extra = NULL;
         cffi_set_flag(ct->ct_under_construction, 1);
-        res = b_complete_struct_or_union(NULL, args);
+        res = b_complete_struct_or_union_lock_held(ct, fields, s->size, s->alignment,
+                                                   sflags, 0);
         cffi_set_flag(ct->ct_under_construction, 0);
-        Py_DECREF(args);
+        Py_DECREF(fields);
 
         if (res == NULL) {
             ct->ct_extra = builder;

@@ -5308,27 +5308,20 @@ static int detect_custom_layout(CTypeDescrObject *ct, int sflags,
 
 #define ROUNDUP_BYTES(bytes, bits)    ((bytes) + ((bits) > 0))
 
-static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
+
+
+static PyObject *b_complete_struct_or_union_lock_held(CTypeDescrObject *ct,
+                                   PyObject *fields,
+                                   Py_ssize_t totalsize, int totalalignment, int sflags,
+                                   int pack)
 {
-    CTypeDescrObject *ct;
-    PyObject *fields, *interned_fields, *ignored;
     int is_union, alignment;
     Py_ssize_t byteoffset, i, nb_fields, byteoffsetmax, alignedsize;
-    int bitoffset;
+    int bitoffset, fflags;
     Py_ssize_t byteoffsetorg;
-    Py_ssize_t totalsize = -1;
-    int totalalignment = -1;
     CFieldObject **previous;
     int prev_bitfield_size, prev_bitfield_free;
-    int sflags = 0, fflags;
-    int pack = 0;
-
-    if (!PyArg_ParseTuple(args, "O!O!|Oniii:complete_struct_or_union",
-                          &CTypeDescr_Type, &ct,
-                          &PyList_Type, &fields,
-                          &ignored, &totalsize, &totalalignment, &sflags,
-                          &pack))
-        return NULL;
+    PyObject *interned_fields;
 
     sflags = complete_sflags(sflags);
     if (sflags & SF_PACKED)
@@ -5339,7 +5332,6 @@ static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
         sflags |= SF_PACKED;
 
     PyObject *res = NULL;
-    Py_BEGIN_CRITICAL_SECTION(ct);
     is_union = ct->ct_flags & CT_UNION;
     if (!((ct->ct_flags & CT_UNION) || (ct->ct_flags & CT_STRUCT)) ||
         !(cffi_check_flag(ct->ct_unrealized_struct_or_union) || cffi_check_flag(ct->ct_under_construction))) {
@@ -5692,9 +5684,32 @@ finally:;
         ct->ct_extra = NULL;
         Py_XDECREF(interned_fields);
     }
+    return res;
+}
+
+static PyObject *b_complete_struct_or_union(PyObject *self, PyObject *args)
+{
+    CTypeDescrObject *ct;
+    PyObject *fields, *ignored;
+    Py_ssize_t totalsize = -1;
+    int totalalignment = -1;
+    int sflags = 0;
+    int pack = 0;
+
+    if (!PyArg_ParseTuple(args, "O!O!|Oniii:complete_struct_or_union",
+                          &CTypeDescr_Type, &ct,
+                          &PyList_Type, &fields,
+                          &ignored, &totalsize, &totalalignment, &sflags,
+                          &pack))
+        return NULL;
+
+    PyObject *res;
+    Py_BEGIN_CRITICAL_SECTION(ct);
+    res = b_complete_struct_or_union_lock_held(ct, fields, totalsize, totalalignment, sflags, pack);
     Py_END_CRITICAL_SECTION();
     return res;
 }
+
 
 struct funcbuilder_s {
     Py_ssize_t nb_bytes;
