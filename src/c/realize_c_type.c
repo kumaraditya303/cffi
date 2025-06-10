@@ -743,7 +743,13 @@ realize_c_type_or_func_now(builder_c_t *builder, _cffi_opcode_t op,
 }
 
 #ifdef Py_GIL_DISABLED
-__thread int _realize_recursion_level;
+#ifdef MS_WIN32
+static __declspec(thread) int _realize_recursion_level;
+#elif defined(USE__THREAD)
+static __thread int _realize_recursion_level;
+#else
+#error "Cannot detect thread-local keyword"
+#endif
 #else
 static int _realize_recursion_level;
 #endif
