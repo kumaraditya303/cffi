@@ -546,9 +546,25 @@ jobs:
       if: ${{ env.skip_artifact_upload != 'true' }}
 
 
+  clang_TSAN:
+    runs-on: ubuntu-latest
+    container: ghcr.io/nascheme/numpy-tsan:3.14t
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: build and install
+      run: |
+        pip install setuptools pytest pytest-run-parallel
+        CFLAGS="-g -O3 -fsanitize=thread" python -m pip install -v .
+
+    - name: run tests under pytest-run-parallel
+      run: |
+        TSAN_OPTIONS="suppressions=$PWD/suppressions_free_threading.txt" \
+        python -m pytest --parallel-threads=4 -sv
+
   check:
     if: always()
-    needs: [python_sdist, linux, macos, windows, merge_artifacts]
+    needs: [python_sdist, linux, macos, windows, clang_TSAN, merge_artifacts]
     runs-on: ubuntu-latest
     steps:
     - name: Verify all previous jobs succeeded (provides a single check to sample for gating purposes)
