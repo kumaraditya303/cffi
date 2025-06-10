@@ -107,7 +107,10 @@ jobs:
 
           - spec: cp313-manylinux_i686
             omit: ${{ env.skip_ci_redundant_jobs }}
-          
+
+          - spec: cp313t-manylinux_i686
+            omit: ${{ env.skip_ci_redundant_jobs }}
+
           - spec: cp39-musllinux_x86_64
             omit: ${{ env.skip_ci_redundant_jobs }}
           
@@ -121,7 +124,9 @@ jobs:
             omit: ${{ env.skip_ci_redundant_jobs }}
   
           - spec: cp313-musllinux_x86_64
-  
+
+          - spec: cp313t-musllinux_x86_64
+
           - spec: cp39-musllinux_i686
             omit: ${{ env.skip_ci_redundant_jobs }}
 
@@ -155,12 +160,17 @@ jobs:
             foreign_arch: true
             test_args: '{package}/src/c'
             omit: ${{ env.skip_ci_redundant_jobs || env.skip_slow_jobs }}
-  
+
           - spec: cp313-musllinux_aarch64
             foreign_arch: true
             # test_args: '{package}/src/c'
             omit: ${{ env.skip_slow_jobs}}
-  
+
+          - spec: cp313t-musllinux_aarch64
+            foreign_arch: true
+            # test_args: '{package}/src/c'
+            omit: ${{ env.skip_slow_jobs}}
+
           - spec: cp38-manylinux_aarch64
             foreign_arch: true
             test_args: '{package}/src/c'
@@ -185,12 +195,17 @@ jobs:
             foreign_arch: true
             test_args: '{package}/src/c'
             omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }}
-  
+
           - spec: cp313-manylinux_aarch64
             foreign_arch: true
             # test_args: '{package}/src/c'
             omit: ${{ env.skip_slow_jobs }}
-  
+
+          - spec: cp313t-manylinux_aarch64
+            foreign_arch: true
+            # test_args: '{package}/src/c'
+            omit: ${{ env.skip_slow_jobs }}
+
           - spec: cp38-manylinux_ppc64le
             foreign_arch: true
             test_args: '{package}/src/c'
@@ -220,7 +235,12 @@ jobs:
             foreign_arch: true
             test_args: '{package}/src/c'
             omit: ${{ env.skip_slow_jobs }}
-  
+
+          - spec: cp313t-manylinux_ppc64le
+            foreign_arch: true
+            test_args: '{package}/src/c'
+            omit: ${{ env.skip_slow_jobs }}
+
           - spec: cp38-manylinux_s390x
             foreign_arch: true
             test_args: '{package}/src/c'
@@ -247,6 +267,11 @@ jobs:
             omit: ${{ env.skip_slow_jobs || env.skip_ci_redundant_jobs }}
 
           - spec: cp313-manylinux_s390x
+            foreign_arch: true
+            # test_args: '{package}/src/c'
+            omit: ${{ env.skip_slow_jobs }}
+
+          - spec: cp313t-manylinux_s390x
             foreign_arch: true
             # test_args: '{package}/src/c'
             omit: ${{ env.skip_slow_jobs }}
@@ -357,6 +382,10 @@ jobs:
             runs_on: [macos-13]
             # omit: ${{ env.skip_ci_redundant_jobs }}
 
+          - spec: cp313t-macosx_x86_64
+            runs_on: [macos-13]
+            # omit: ${{ env.skip_ci_redundant_jobs }}
+
            # FIXME: ? cp38-macosx_arm64 requires special handling and fails some test_zdist tests under cibw 2.1.2, skip it (so Apple's XCode python3 won't have a wheel)
           - spec: cp39-macosx_arm64
             deployment_target: '11.0'
@@ -379,6 +408,10 @@ jobs:
             omit: ${{ env.skip_ci_redundant_jobs }}
 
           - spec: cp313-macosx_arm64
+            deployment_target: '11.0'
+            run_wrapper: arch -arm64 bash --noprofile --norc -eo pipefail {0}
+
+          - spec: cp313t-macosx_arm64
             deployment_target: '11.0'
             run_wrapper: arch -arm64 bash --noprofile --norc -eo pipefail {0}
 
@@ -468,7 +501,8 @@ jobs:
             omit: ${{ env.skip_ci_redundant_jobs }}
 
           - spec: cp313-win_amd64
-            # omit: ${{ env.skip_ci_redundant_jobs }}
+
+          - spec: cp313t-win_amd64
 
           - spec: cp38-win32
             omit: ${{ env.skip_ci_redundant_jobs }}
@@ -486,6 +520,9 @@ jobs:
             omit: ${{ env.skip_ci_redundant_jobs }}
 
           - spec: cp313-win32
+            omit: ${{ env.skip_ci_redundant_jobs }}
+
+          - spec: cp313t-win32
             omit: ${{ env.skip_ci_redundant_jobs }}
 
   windows:
