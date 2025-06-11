@@ -197,7 +197,6 @@ def test_global_var():
     p[0] -= 1
     assert lib.globalvar42 == 1238
 
-@pytest.mark.thread_unsafe
 def test_global_const_int():
     from re_python_pysrc import ffi
     lib = ffi.dlopen(extmod)

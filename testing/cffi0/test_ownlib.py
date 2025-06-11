@@ -179,7 +179,6 @@ class TestOwnLib(object):
             cls.module = os.path.join(str(udir), unicode_name + (u+'.so'))
         print(repr(cls.module))
 
-    @pytest.mark.thread_unsafe
     def test_getting_errno(self):
         if self.module is None:
             pytest.skip("fix the auto-generation of the tiny test lib")
@@ -194,7 +193,6 @@ class TestOwnLib(object):
         assert res == -1
         assert ffi.errno == 123
 
-    @pytest.mark.thread_unsafe
     def test_setting_errno(self):
         if self.module is None:
             pytest.skip("fix the auto-generation of the tiny test lib")
