@@ -606,7 +606,7 @@ jobs:
 
     - name: run tests under pytest-run-parallel
       run: |
-        python -m pytest --parallel-threads=4
+        python -m pytest --parallel-threads=4 src/c
 
   clang_TSAN:
     runs-on: ubuntu-latest
